@@ -1,0 +1,8 @@
+{
+    "name": "Python 3.11",
+    "image": "mcr.microsoft.com/devcontainers/python:0-3.11",
+    "features": {
+        // You can add other features here if needed, e.g., "ghcr.io/devcontainers/features/node:1": {}
+    },
+    "postCreateCommand": "pip install --no-cache-dir -r requirements.txt"
+}
