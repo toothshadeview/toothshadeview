@@ -15,7 +15,7 @@
     <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
         <!-- Image Upload Form -->
         <div class="bg-gray-50 p-6 rounded-lg shadow-md border border-gray-200">
-            <h2 class="text-2xl font-semibold text-gray-900 mb-4">Upload Tooth Photo</h2>
+            <h2 class="text-2xl font-semibold text-gray-900 mb-4">Upload or Capture Tooth Photo</h2>
             <form action="{{ url_for('upload_file') }}" method="POST" enctype="multipart/form-data" class="space-y-6">
                 <!-- Hidden fields for patient context -->
                 <input type="hidden" name="op_number" value="{{ op_number }}">
@@ -32,7 +32,21 @@
                                  hover:file:bg-indigo-100 transition ease-in-out duration-150">
                 </div>
 
-                {# NEW: Simulated Device/Lighting Profile Selection #}
+                <div class="flex items-center justify-between">
+                    <span class="text-sm text-gray-600">OR</span>
+                </div>
+
+                <div>
+                    <button type="button" id="start-camera" class="w-full py-2 px-4 border border-transparent rounded-md shadow-sm text-base font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition">Use Camera</button>
+                </div>
+
+                <div class="hidden mt-4" id="camera-wrapper">
+                    <video id="camera-stream" autoplay playsinline class="w-full rounded-md border border-gray-300"></video>
+                    <button type="button" id="capture-button" class="mt-2 w-full py-2 px-4 rounded-md bg-green-600 text-white hover:bg-green-700">Capture Photo</button>
+                    <canvas id="snapshot" name="camera_image" class="hidden mt-4 w-full border rounded-md"></canvas>
+                    <input type="hidden" id="camera-data" name="camera_data">
+                </div>
+
                 <div>
                     <label for="device_profile" class="block text-sm font-medium text-gray-700 mb-2">Simulate Device/Lighting:</label>
                     <select id="device_profile" name="device_profile"
@@ -44,7 +58,6 @@
                     </select>
                 </div>
 
-                {# NEW: Simulated Color Reference Tab Selection #}
                 <div>
                     <label for="reference_tab" class="block text-sm font-medium text-gray-700 mb-2">Simulate Color Reference in Image:</label>
                     <select id="reference_tab" name="reference_tab"
@@ -62,7 +75,7 @@
             </form>
         </div>
 
-        <!-- Advanced Photo Capture Instructions & Simulated Real-time Validation -->
+        <!-- Photo Capture Guide -->
         <div class="bg-blue-50 p-6 rounded-lg shadow-md border border-blue-200">
             <h2 class="text-2xl font-semibold text-blue-800 mb-4">📸 Advanced Photo Capture Guide</h2>
             <ul class="list-disc list-inside text-blue-700 space-y-3 text-lg">
@@ -80,7 +93,6 @@
             <div class="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-md text-yellow-800 text-sm">
                 <strong class="font-medium">💡 Simulated Real-time Validation:</strong>
                 <p id="validation-message">
-                    <!-- This message will change based on the selected device_profile and reference_tab -->
                     Select a "Simulate Device/Lighting" and "Simulate Color Reference" profile above to see how a real app would guide you.
                 </p>
             </div>
@@ -88,7 +100,6 @@
     </div>
 
     <script>
-        // JavaScript to dynamically update the simulated validation message
         document.addEventListener('DOMContentLoaded', function() {
             const deviceProfileSelect = document.getElementById('device_profile');
             const referenceTabSelect = document.getElementById('reference_tab');
@@ -101,29 +112,56 @@
 
                 switch (selectedProfile) {
                     case "ideal":
-                        message = "Excellent! Ideal capture conditions simulated. High accuracy expected with " + selectedReference.replace("_", " ").toLowerCase() + " reference.";
+                        message = `Excellent! Ideal capture conditions simulated. High accuracy expected with ${selectedReference.replace("_", " ")} reference.`;
                         break;
                     case "iphone_warm":
-                        message = "iPhone detected. Applying reference-based color normalization. Image looks slightly warm; correction applied using " + selectedReference.replace("_", " ").toLowerCase() + ".";
+                        message = `iPhone detected. Slightly warm tone. Normalizing using ${selectedReference.replace("_", " ")} reference.`;
                         break;
                     case "android_cool":
-                        message = "Android detected. Applying reference-based color normalization. Image looks slightly cool; correction applied using " + selectedReference.replace("_", " ").toLowerCase() + ".";
+                        message = `Android detected. Slightly cool tone. Normalizing using ${selectedReference.replace("_", " ")} reference.`;
                         break;
                     case "poor_lighting":
-                        message = "Warning: Lighting suboptimal (dim/yellowish). Applying reference-based color normalization using " + selectedReference.replace("_", " ").toLowerCase() + ". Accuracy may still be impacted. Move to better light if possible.";
+                        message = `Warning: Poor lighting. Trying correction using ${selectedReference.replace("_", " ")} reference.`;
                         break;
                     default:
-                        message = "Select a 'Simulate Device/Lighting' and 'Simulate Color Reference' profile above to see how a real app would guide you.";
+                        message = "Select both profiles above to simulate real-time validation.";
                 }
                 validationMessage.textContent = message;
             }
 
-            // Update message on page load
-            updateValidationMessage();
-
-            // Update message when selections change
             deviceProfileSelect.addEventListener('change', updateValidationMessage);
             referenceTabSelect.addEventListener('change', updateValidationMessage);
+            updateValidationMessage();
+
+            // Camera Capture Logic
+            const startCamera = document.getElementById('start-camera');
+            const cameraWrapper = document.getElementById('camera-wrapper');
+            const video = document.getElementById('camera-stream');
+            const captureButton = document.getElementById('capture-button');
+            const snapshotCanvas = document.getElementById('snapshot');
+            const cameraDataInput = document.getElementById('camera-data');
+
+            let stream;
+
+            startCamera.addEventListener('click', async () => {
+                cameraWrapper.classList.remove('hidden');
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                    video.srcObject = stream;
+                } catch (err) {
+                    alert("Unable to access camera. Make sure permission is granted.");
+                }
+            });
+
+            captureButton.addEventListener('click', () => {
+                const context = snapshotCanvas.getContext('2d');
+                snapshotCanvas.width = video.videoWidth;
+                snapshotCanvas.height = video.videoHeight;
+                snapshotCanvas.classList.remove('hidden');
+                context.drawImage(video, 0, 0);
+                const imageData = snapshotCanvas.toDataURL('image/png');
+                cameraDataInput.value = imageData;
+            });
         });
     </script>
 {% endblock %}

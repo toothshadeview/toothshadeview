@@ -1116,73 +1116,73 @@ def upload_page(op_number):
 @app.route('/upload', methods=['GET', 'POST'])
 @login_required
 def upload_file():
-    """Handles image upload, shade detection, and PDF report generation."""
+    """Handles image upload (camera or file), shade detection, and PDF generation."""
     if request.method == 'POST':
         if 'file' not in request.files:
-            flash('No file part', 'danger')
+            flash('No file part received. Please try again.', 'danger')
             return redirect(request.url)
+
         file = request.files['file']
         op_number_from_form = request.form.get('op_number')
         patient_name = request.form.get('patient_name', 'Unnamed Patient')
         device_profile = request.form.get('device_profile', 'ideal')
         reference_tab = request.form.get('reference_tab', 'neutral_gray')
 
-        if file.filename == '':
-            flash('No selected file', 'danger')
+        if not file or file.filename == '':
+            flash('No image selected or captured. Please choose or take a photo.', 'danger')
             return redirect(request.url)
 
-        if file:
-            filename = secure_filename(file.filename)
-            file_ext = os.path.splitext(filename)[1]
-            unique_filename = str(uuid.uuid4()) + file_ext
-            
-            original_image_path = os.path.join(UPLOAD_FOLDER, unique_filename)
-            file.save(original_image_path)
-            flash('Image uploaded successfully!', 'success')
+        filename = secure_filename(file.filename)
+        file_ext = os.path.splitext(filename)[1]
+        unique_filename = str(uuid.uuid4()) + file_ext
+        original_image_path = os.path.join(UPLOAD_FOLDER, unique_filename)
+        file.save(original_image_path)
+        flash('Image uploaded successfully!', 'success')
 
-            detected_shades = detect_shades_from_image(original_image_path, device_profile, reference_tab)
+        detected_shades = detect_shades_from_image(original_image_path, device_profile, reference_tab)
 
-            if (detected_shades.get("incisal") == "N/A" and
-                detected_shades.get("middle") == "N/A" and
-                detected_shades.get("cervical") == "N/A" and
-                detected_shades.get("overall_ml_shade") == "N/A" and
-                detected_shades.get("delta_e_matched_shades", {}).get("overall") == "N/A"):
-                flash("Error processing image for shade detection. Please try another image or check image quality.", 'danger')
-                if os.path.exists(original_image_path):
-                    os.remove(original_image_path)
-                return redirect(url_for('upload_page', op_number=op_number_from_form))
+        if (detected_shades.get("incisal") == "N/A" and
+            detected_shades.get("middle") == "N/A" and
+            detected_shades.get("cervical") == "N/A" and
+            detected_shades.get("overall_ml_shade") == "N/A" and
+            detected_shades.get("delta_e_matched_shades", {}).get("overall") == "N/A"):
+            flash("Error processing image for shade detection. Please try another image or use better lighting.", 'danger')
+            if os.path.exists(original_image_path):
+                os.remove(original_image_path)
+            return redirect(url_for('upload_page', op_number=op_number_from_form))
 
+        report_filename = f"report_{patient_name.replace(' ', '')}{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        report_filepath = os.path.join(REPORT_FOLDER, report_filename)
+        generate_pdf_report(patient_name, detected_shades, original_image_path, report_filepath)
+        flash('PDF report generated successfully!', 'success')
 
-            report_filename = f"report_{patient_name.replace(' ', '')}{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-            report_filepath = os.path.join(REPORT_FOLDER, report_filename)
-            generate_pdf_report(patient_name, detected_shades, original_image_path, report_filepath)
-            flash('PDF report generated!', 'success')
+        formatted_analysis_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
-            formatted_analysis_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        report_data = {
+            'patient_name': patient_name,
+            'op_number': op_number_from_form,
+            'original_image': unique_filename,
+            'report_filename': report_filename,
+            'detected_shades': detected_shades,
+            'timestamp': datetime.now().isoformat(),
+            'user_id': g.firestore_user_id
+        }
 
-            report_data = {
-                'patient_name': patient_name,
-                'op_number': op_number_from_form,
-                'original_image': unique_filename,
-                'report_filename': report_filename,
-                'detected_shades': detected_shades,
-                'timestamp': datetime.now().isoformat(),
-                'user_id': g.firestore_user_id
-            }
-            reports_collection_path = ['artifacts', app_id, 'users', g.firestore_user_id, 'reports']
-            add_firestore_document(reports_collection_path, report_data)
+        reports_collection_path = ['artifacts', app_id, 'users', g.firestore_user_id, 'reports']
+        add_firestore_document(reports_collection_path, report_data)
 
-            return render_template('report.html',
-                                   patient_name=patient_name,
-                                   shades=detected_shades,
-                                   image_filename=unique_filename,
-                                   report_filename=report_filename,
-                                   analysis_date=formatted_analysis_date,
-                                   device_profile=device_profile,
-                                   reference_tab=reference_tab)
-    
-    flash("Please select a patient from the dashboard to upload an image.", 'info')
+        return render_template('report.html',
+                               patient_name=patient_name,
+                               shades=detected_shades,
+                               image_filename=unique_filename,
+                               report_filename=report_filename,
+                               analysis_date=formatted_analysis_date,
+                               device_profile=device_profile,
+                               reference_tab=reference_tab)
+
+    flash("Please select a patient from the dashboard before uploading an image.", 'info')
     return redirect(url_for('dashboard'))
+
 
 
 @app.route('/download_report/<filename>')
