@@ -246,7 +246,6 @@ def init_db():
     db_path = os.path.join('instance', 'shadeview.sqlite')
     if not os.path.exists('instance'):
         os.makedirs('instance')
-
     with sqlite3.connect(db_path) as conn:
         with open('schema.sql') as f:
             conn.executescript(f.read())
@@ -1262,6 +1261,8 @@ def ux_report_page():
     """Renders the UX Report page."""
     return render_template('ux_report.html')
 
+
+# ✅ Add this AFTER the init_db() definition
 @app.route('/initdb')
 def run_init_db():
     init_db()
