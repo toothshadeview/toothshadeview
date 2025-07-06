@@ -12,6 +12,15 @@ import json  # For parsing Firebase config
 import traceback # Import for printing full tracebacks
 import uuid # For generating unique filenames
 # Your AI or ML model imports if any
+import sqlite3
+import os
+
+def get_db_connection():
+    db_path = os.path.join('instance', 'shadeview.sqlite')
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row  # This allows dict-style access like patient['name']
+    return conn
+
 
 def init_db():
     db_path = os.path.join('instance', 'shadeview.sqlite')
