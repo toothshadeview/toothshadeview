@@ -31,6 +31,16 @@ import pandas as pd  # For CSV handling
 from colormath.color_objects import LabColor
 from colormath.color_diff import delta_e_cie2000
 # ---------------------------------------------
+# ✅ Ensure instance folder exists for Render
+if not os.path.exists('instance'):
+    os.makedirs('instance')
+
+# ✅ Place your connection function here
+def get_db_connection():
+    db_path = os.path.join(os.getcwd(), 'instance', 'shadeview.sqlite')
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    return conn
 
 # --- VITA Shade LAB Reference Values (Precise values from research paper: ResearchGate, Source 1.5, Table 1 from previous search) ---
 # L (0-100), a (-128 to 127), b (-128 to 127)
