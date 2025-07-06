@@ -21,6 +21,12 @@ def get_db_connection():
     conn.row_factory = sqlite3.Row  # This allows dict-style access like patient['name']
     return conn
 
+def init_db():
+    conn = get_db_connection()
+    with open('schema.sql') as f:
+        conn.executescript(f.read())
+    conn.close()
+
 
 def init_db():
     db_path = os.path.join('instance', 'shadeview.sqlite')
@@ -1240,6 +1246,11 @@ def download_report(filename):
 def ux_report_page():
     """Renders the UX Report page."""
     return render_template('ux_report.html')
+@app.route('/initdb')
+def run_init_db():
+    init_db()
+    return "DB initialized"
+
 
 if __name__ == '__main__':
     if shade_classifier_model is None:
