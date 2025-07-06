@@ -1073,17 +1073,18 @@ def logout():
 @login_required
 def dashboard():
     """Renders the user dashboard with patient details and reports."""
-    # Get patient details from SQLite
     conn = get_db_connection()
     cursor = conn.cursor()
+
+    # Get all patients for the logged-in user
     cursor.execute("SELECT * FROM patients WHERE user_id = ?", (g.user['id'],))
     patients = cursor.fetchall()
     conn.close()
 
-    # Format current date
+    # Format the current date
     current_date_formatted = datetime.now().strftime('%Y-%m-%d')
 
-    # Get all reports for the current Firestore user
+    # --- Get reports from Firestore ---
     reports_collection_path = ['artifacts', app_id, 'users', g.firestore_user_id, 'reports']
     all_reports = get_firestore_documents_in_collection(reports_collection_path)
 
@@ -1091,15 +1092,17 @@ def dashboard():
     reports_by_op = {}
     for report in all_reports:
         op_number = report.get('op_number')
-        if op_number not in reports_by_op:
-            reports_by_op[op_number] = []
-        reports_by_op[op_number].append(report)
+        if op_number:
+            if op_number not in reports_by_op:
+                reports_by_op[op_number] = []
+            reports_by_op[op_number].append(report)
 
     return render_template('dashboard.html',
                            patients=patients,
                            user=g.user,
                            current_date=current_date_formatted,
                            reports_by_op=reports_by_op)
+
 
 
 
@@ -1123,9 +1126,9 @@ def save_patient_data():
     ).fetchone()
 
     if existing_patient:
-        flash('OP Number already exists for another patient under your account. Please use a unique OP Number.', 'danger')
+        flash('Patient already exists. You can now upload or view previous reports.', 'info')
         conn.close()
-        return redirect(url_for('dashboard'))
+        return redirect(url_for('upload_page', op_number=op_number))
 
     try:
         conn.execute(
@@ -1143,6 +1146,7 @@ def save_patient_data():
         return redirect(url_for('dashboard'))
     finally:
         conn.close()
+
 
 
 
