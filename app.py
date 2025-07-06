@@ -15,28 +15,6 @@ import uuid # For generating unique filenames
 import sqlite3
 import os
 
-def get_db_connection():
-    db_path = os.path.join('instance', 'shadeview.sqlite')
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row  # This allows dict-style access like patient['name']
-    return conn
-
-def init_db():
-    conn = get_db_connection()
-    with open('schema.sql') as f:
-        conn.executescript(f.read())
-    conn.close()
-
-
-def init_db():
-    db_path = os.path.join('instance', 'shadeview.sqlite')
-    if not os.path.exists('instance'):
-        os.makedirs('instance')
-
-    with sqlite3.connect(db_path) as conn:
-        with open('schema.sql') as f:
-            conn.executescript(f.read())
-    print("✅ Initialized the database.")
 
 
 # --- Firestore Imports (Conceptual for Canvas) ---
@@ -241,6 +219,29 @@ db_data = {
     }
 }
 db = db_data
+def get_db_connection():
+    db_path = os.path.join('instance', 'shadeview.sqlite')
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row  # This allows dict-style access like patient['name']
+    return conn
+
+def init_db():
+    conn = get_db_connection()
+    with open('schema.sql') as f:
+        conn.executescript(f.read())
+    conn.close()
+
+
+def init_db():
+    db_path = os.path.join('instance', 'shadeview.sqlite')
+    if not os.path.exists('instance'):
+        os.makedirs('instance')
+
+    with sqlite3.connect(db_path) as conn:
+        with open('schema.sql') as f:
+            conn.executescript(f.read())
+    print("✅ Initialized the database.")
+
 
 def setup_initial_firebase_globals():
     """
