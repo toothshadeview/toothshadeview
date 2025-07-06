@@ -13,6 +13,15 @@ import traceback # Import for printing full tracebacks
 import uuid # For generating unique filenames
 # Your AI or ML model imports if any
 
+def init_db():
+    db_path = os.path.join('instance', 'shadeview.sqlite')
+    if not os.path.exists('instance'):
+        os.makedirs('instance')
+
+    with sqlite3.connect(db_path) as conn:
+        with open('schema.sql') as f:
+            conn.executescript(f.read())
+    print("Initialized the database.")
 # ===============================================
 # Database Connection Function
 # ===============================================
@@ -1232,4 +1241,5 @@ def ux_report_page():
 if __name__ == '__main__':
     if shade_classifier_model is None:
         print("CRITICAL: Machine Learning model could not be loaded or trained. Shade prediction will not work.")
+    init_db()
     app.run(debug=True)
