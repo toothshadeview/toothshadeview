@@ -1,4 +1,3 @@
-import sqlite3
 import os
 import sqlite3
 from flask import Flask, render_template, request, redirect, url_for, session, flash, g, send_from_directory
@@ -11,11 +10,6 @@ import numpy as np  # For numerical operations with images
 import json  # For parsing Firebase config
 import traceback # Import for printing full tracebacks
 import uuid # For generating unique filenames
-# Your AI or ML model imports if any
-import sqlite3
-import os
-
-
 
 # --- Firestore Imports (Conceptual for Canvas) ---
 # from firebase_admin import credentials, firestore, initialize_app
@@ -31,16 +25,6 @@ import pandas as pd  # For CSV handling
 from colormath.color_objects import LabColor
 from colormath.color_diff import delta_e_cie2000
 # ---------------------------------------------
-# ✅ Ensure instance folder exists for Render
-if not os.path.exists('instance'):
-    os.makedirs('instance')
-
-# ✅ Place your connection function here
-def get_db_connection():
-    db_path = os.path.join(os.getcwd(), 'instance', 'shadeview.sqlite')
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    return conn
 
 # --- VITA Shade LAB Reference Values (Precise values from research paper: ResearchGate, Source 1.5, Table 1 from previous search) ---
 # L (0-100), a (-128 to 127), b (-128 to 127)
@@ -229,28 +213,6 @@ db_data = {
     }
 }
 db = db_data
-def get_db_connection():
-    db_path = os.path.join('instance', 'shadeview.sqlite')
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row  # This allows dict-style access like patient['name']
-    return conn
-
-def init_db():
-    conn = get_db_connection()
-    with open('schema.sql') as f:
-        conn.executescript(f.read())
-    conn.close()
-
-
-def init_db():
-    db_path = os.path.join('instance', 'shadeview.sqlite')
-    if not os.path.exists('instance'):
-        os.makedirs('instance')
-    with sqlite3.connect(db_path) as conn:
-        with open('schema.sql') as f:
-            conn.executescript(f.read())
-    print("✅ Initialized the database.")
-
 
 def setup_initial_firebase_globals():
     """
@@ -1081,44 +1043,23 @@ def logout():
 @app.route('/dashboard')
 @login_required
 def dashboard():
-    """Renders the user dashboard with patient details and reports."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    """Renders the user dashboard, displaying past reports."""
+    reports_path = ['artifacts', app_id, 'users', g.firestore_user_id, 'reports']
+    user_reports = get_firestore_documents_in_collection(reports_path)
+    user_reports.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
 
-    # Get all patients for the logged-in user
-    cursor.execute("SELECT * FROM patients WHERE user_id = ?", (g.user['id'],))
-    patients = cursor.fetchall()
-    conn.close()
-
-    # Format the current date
     current_date_formatted = datetime.now().strftime('%Y-%m-%d')
 
-    # --- Get reports from Firestore ---
-    reports_collection_path = ['artifacts', app_id, 'users', g.firestore_user_id, 'reports']
-    all_reports = get_firestore_documents_in_collection(reports_collection_path)
-
-    # Organize reports by OP number
-    reports_by_op = {}
-    for report in all_reports:
-        op_number = report.get('op_number')
-        if op_number:
-            if op_number not in reports_by_op:
-                reports_by_op[op_number] = []
-            reports_by_op[op_number].append(report)
-
     return render_template('dashboard.html',
-                           patients=patients,
+                           reports=user_reports,
                            user=g.user,
-                           current_date=current_date_formatted,
-                           reports_by_op=reports_by_op)
-
-
+                           current_date=current_date_formatted)
 
 
 @app.route('/save_patient_data', methods=['POST'])
 @login_required
 def save_patient_data():
-    """Handles saving new patient records to SQLite and redirects to image upload page."""
+    """Handles saving new patient records to Firestore and redirects to image upload page."""
     op_number = request.form['op_number']
     patient_name = request.form['patient_name']
     age = request.form['age']
@@ -1126,37 +1067,31 @@ def save_patient_data():
     record_date = request.form['date']
     user_id = g.user['id']
 
-    conn = get_db_connection()
+    patients_collection_path = ['artifacts', app_id, 'users', user_id, 'patients']
 
-    # Check if OP Number already exists for this user
-    existing_patient = conn.execute(
-        'SELECT * FROM patients WHERE op_number = ? AND user_id = ?',
-        (op_number, user_id)
-    ).fetchone()
-
-    if existing_patient:
-        flash('Patient already exists. You can now upload or view previous reports.', 'info')
-        conn.close()
-        return redirect(url_for('upload_page', op_number=op_number))
+    existing_patients = get_firestore_documents_in_collection(patients_collection_path, query_filters={'op_number': op_number, 'user_id': user_id})
+    if existing_patients:
+        flash('OP Number already exists for another patient under your account. Please use a unique OP Number or select from recent entries.', 'error')
+        return redirect(url_for('dashboard'))
 
     try:
-        conn.execute(
-            '''
-            INSERT INTO patients (user_id, op_number, patient_name, age, sex, record_date, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''',
-            (user_id, op_number, patient_name, age, sex, record_date, datetime.now().isoformat())
-        )
-        conn.commit()
-        flash('Patient record saved successfully to the database! Now upload an image.', 'success')
+        patient_data = {
+            'user_id': user_id,
+            'op_number': op_number,
+            'patient_name': patient_name,
+            'age': int(age),
+            'sex': sex,
+            'record_date': record_date,
+            'created_at': datetime.now().isoformat()
+        }
+        
+        add_firestore_document(patients_collection_path, patient_data)
+
+        flash('Patient record saved successfully (to Firestore)! Now upload an image.', 'success')
         return redirect(url_for('upload_page', op_number=op_number))
     except Exception as e:
-        flash(f'Error saving patient record to database: {e}', 'danger')
+        flash(f'Error saving patient record to Firestore: {e}', 'error')
         return redirect(url_for('dashboard'))
-    finally:
-        conn.close()
-
-
 
 
 @app.route('/upload_page/<op_number>')
@@ -1261,17 +1196,7 @@ def ux_report_page():
     """Renders the UX Report page."""
     return render_template('ux_report.html')
 
-
-# ✅ Add this AFTER the init_db() definition
-@app.route('/initdb')
-def run_init_db():
-    init_db()
-    return "✅ Database initialized."
-
-
-
 if __name__ == '__main__':
     if shade_classifier_model is None:
-        print("⚠️ Model not loaded. Shade prediction won't work.")
-    init_db()  # ✅ Create DB and table if not exists
+        print("CRITICAL: Machine Learning model could not be loaded or trained. Shade prediction will not work.")
     app.run(debug=True)
