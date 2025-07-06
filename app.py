@@ -1261,6 +1261,7 @@ def download_report(filename):
 def ux_report_page():
     """Renders the UX Report page."""
     return render_template('ux_report.html')
+
 @app.route('/initdb')
 def run_init_db():
     init_db()
