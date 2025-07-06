@@ -1,3 +1,4 @@
+import sqlite3
 import os
 import sqlite3
 from flask import Flask, render_template, request, redirect, url_for, session, flash, g, send_from_directory
@@ -10,6 +11,15 @@ import numpy as np  # For numerical operations with images
 import json  # For parsing Firebase config
 import traceback # Import for printing full tracebacks
 import uuid # For generating unique filenames
+# Your AI or ML model imports if any
+
+# ===============================================
+# Database Connection Function
+# ===============================================
+def get_db_connection():
+    conn = sqlite3.connect('database.db')
+    conn.row_factory = sqlite3.Row  # Optional: allows row results like dictionaries
+    return conn
 
 # --- Firestore Imports (Conceptual for Canvas) ---
 # from firebase_admin import credentials, firestore, initialize_app
@@ -1043,23 +1053,41 @@ def logout():
 @app.route('/dashboard')
 @login_required
 def dashboard():
-    """Renders the user dashboard, displaying past reports."""
-    reports_path = ['artifacts', app_id, 'users', g.firestore_user_id, 'reports']
-    user_reports = get_firestore_documents_in_collection(reports_path)
-    user_reports.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+    """Renders the user dashboard with patient details and reports."""
+    # Get patient details from SQLite
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM patients WHERE user_id = ?", (g.user['id'],))
+    patients = cursor.fetchall()
+    conn.close()
 
+    # Format current date
     current_date_formatted = datetime.now().strftime('%Y-%m-%d')
 
+    # Get all reports for the current Firestore user
+    reports_collection_path = ['artifacts', app_id, 'users', g.firestore_user_id, 'reports']
+    all_reports = get_firestore_documents_in_collection(reports_collection_path)
+
+    # Organize reports by OP number
+    reports_by_op = {}
+    for report in all_reports:
+        op_number = report.get('op_number')
+        if op_number not in reports_by_op:
+            reports_by_op[op_number] = []
+        reports_by_op[op_number].append(report)
+
     return render_template('dashboard.html',
-                           reports=user_reports,
+                           patients=patients,
                            user=g.user,
-                           current_date=current_date_formatted)
+                           current_date=current_date_formatted,
+                           reports_by_op=reports_by_op)
+
 
 
 @app.route('/save_patient_data', methods=['POST'])
 @login_required
 def save_patient_data():
-    """Handles saving new patient records to Firestore and redirects to image upload page."""
+    """Handles saving new patient records to SQLite and redirects to image upload page."""
     op_number = request.form['op_number']
     patient_name = request.form['patient_name']
     age = request.form['age']
@@ -1067,31 +1095,36 @@ def save_patient_data():
     record_date = request.form['date']
     user_id = g.user['id']
 
-    patients_collection_path = ['artifacts', app_id, 'users', user_id, 'patients']
+    conn = get_db_connection()
 
-    existing_patients = get_firestore_documents_in_collection(patients_collection_path, query_filters={'op_number': op_number, 'user_id': user_id})
-    if existing_patients:
-        flash('OP Number already exists for another patient under your account. Please use a unique OP Number or select from recent entries.', 'error')
+    # Check if OP Number already exists for this user
+    existing_patient = conn.execute(
+        'SELECT * FROM patients WHERE op_number = ? AND user_id = ?',
+        (op_number, user_id)
+    ).fetchone()
+
+    if existing_patient:
+        flash('OP Number already exists for another patient under your account. Please use a unique OP Number.', 'danger')
+        conn.close()
         return redirect(url_for('dashboard'))
 
     try:
-        patient_data = {
-            'user_id': user_id,
-            'op_number': op_number,
-            'patient_name': patient_name,
-            'age': int(age),
-            'sex': sex,
-            'record_date': record_date,
-            'created_at': datetime.now().isoformat()
-        }
-        
-        add_firestore_document(patients_collection_path, patient_data)
-
-        flash('Patient record saved successfully (to Firestore)! Now upload an image.', 'success')
+        conn.execute(
+            '''
+            INSERT INTO patients (user_id, op_number, patient_name, age, sex, record_date, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''',
+            (user_id, op_number, patient_name, age, sex, record_date, datetime.now().isoformat())
+        )
+        conn.commit()
+        flash('Patient record saved successfully to the database! Now upload an image.', 'success')
         return redirect(url_for('upload_page', op_number=op_number))
     except Exception as e:
-        flash(f'Error saving patient record to Firestore: {e}', 'error')
+        flash(f'Error saving patient record to database: {e}', 'danger')
         return redirect(url_for('dashboard'))
+    finally:
+        conn.close()
+
 
 
 @app.route('/upload_page/<op_number>')
