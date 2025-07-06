@@ -21,14 +21,8 @@ def init_db():
     with sqlite3.connect(db_path) as conn:
         with open('schema.sql') as f:
             conn.executescript(f.read())
-    print("Initialized the database.")
-# ===============================================
-# Database Connection Function
-# ===============================================
-def get_db_connection():
-    conn = sqlite3.connect('database.db')
-    conn.row_factory = sqlite3.Row  # Optional: allows row results like dictionaries
-    return conn
+    print("✅ Initialized the database.")
+
 
 # --- Firestore Imports (Conceptual for Canvas) ---
 # from firebase_admin import credentials, firestore, initialize_app
@@ -1240,6 +1234,6 @@ def ux_report_page():
 
 if __name__ == '__main__':
     if shade_classifier_model is None:
-        print("CRITICAL: Machine Learning model could not be loaded or trained. Shade prediction will not work.")
-    init_db()
+        print("⚠️ Model not loaded. Shade prediction won't work.")
+    init_db()  # ✅ Create DB and table if not exists
     app.run(debug=True)

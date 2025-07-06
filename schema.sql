@@ -10,5 +10,3 @@ CREATE TABLE IF NOT EXISTS patients (
     record_date TEXT,
     created_at TEXT
 );
-
--- You can add other tables like `reports` if needed.
