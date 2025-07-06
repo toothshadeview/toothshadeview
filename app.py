@@ -1265,7 +1265,8 @@ def ux_report_page():
 @app.route('/initdb')
 def run_init_db():
     init_db()
-    return "DB initialized"
+    return "✅ Database initialized."
+
 
 
 if __name__ == '__main__':
