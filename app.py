@@ -1,3 +1,4 @@
+import sqlite3
 import os
 import sqlite3
 from flask import Flask, render_template, request, redirect, url_for, session, flash, g, send_from_directory
@@ -10,6 +11,15 @@ import numpy as np  # For numerical operations with images
 import json  # For parsing Firebase config
 import traceback # Import for printing full tracebacks
 import uuid # For generating unique filenames
+# Your AI or ML model imports if any
+
+# ===============================================
+# Database Connection Function
+# ===============================================
+def get_db_connection():
+    conn = sqlite3.connect('database.db')
+    conn.row_factory = sqlite3.Row  # Optional: allows row results like dictionaries
+    return conn
 
 # --- Firestore Imports (Conceptual for Canvas) ---
 # from firebase_admin import credentials, firestore, initialize_app
@@ -467,7 +477,6 @@ else:
 
 #     # Apply this correction offset to the tooth LAB values
 #     corrected_tooth_lab = tooth_lab_255_scale + correction_offset
-
 #     # Introduce minimal, consistent residual noise, independent of device_profile
 #     residual_noise_l = np.random.uniform(-0.1, 0.1) # Very small, consistent noise
 #     residual_noise_a = np.random.uniform(0.0, 0.5) # Slightly positive to push towards neutral/warm
@@ -488,6 +497,7 @@ else:
 #     The deviations are tuned to be noticeable but correctable.
 #     """
 #     simulated_captured_ref_lab = np.copy(ideal_ref_lab_255_scale).astype(np.float32)
+
 #     if device_profile == "iphone_warm":
 #         simulated_captured_ref_lab[1] += np.random.uniform(1, 3)  # Slightly more red (a*)
 #         simulated_captured_ref_lab[2] += np.random.uniform(2, 5) # Slightly more yellow (b*)
@@ -1010,10 +1020,9 @@ def login():
         flash(error, 'danger')
 
     return render_template('login.html')
-
 @app.route('/register', methods=['GET', 'POST'])
 def register():
-    """Handles user registration."""
+    """Handles user registration (Simulated for Canvas)."""
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
@@ -1027,24 +1036,32 @@ def register():
         if error is None:
             flash(f"Simulated registration successful for {username}. You can now log in!", 'success')
             return redirect(url_for('login'))
-
         flash(error, 'danger')
 
     return render_template('register.html')
 
+@app.route('/logout')
+def logout():
+    """Handles user logout."""
+    session.clear()
+    flash('You have been logged out.', 'info')
+    print(f"DEBUG: User logged out. Session cleared.")
+    return redirect(url_for('home'))
 
 @app.route('/dashboard')
 @login_required
 def dashboard():
-    """Renders the user dashboard, displaying past reports."""
-    reports_path = ['artifacts', app_id, 'users', g.firestore_user_id, 'reports']
-    user_reports = get_firestore_documents_in_collection(reports_path)
-    user_reports.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+    """Renders the user dashboard with patient details from SQLite."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM patients WHERE user_id = ?", (g.user['id'],))
+    patients = cursor.fetchall()
+    conn.close()
 
     current_date_formatted = datetime.now().strftime('%Y-%m-%d')
 
     return render_template('dashboard.html',
-                           reports=user_reports,
+                           patients=patients,
                            user=g.user,
                            current_date=current_date_formatted)
 
@@ -1052,7 +1069,7 @@ def dashboard():
 @app.route('/save_patient_data', methods=['POST'])
 @login_required
 def save_patient_data():
-    """Handles saving new patient records to Firestore and redirects to image upload page."""
+    """Handles saving new patient records to SQLite and redirects to image upload page."""
     op_number = request.form['op_number']
     patient_name = request.form['patient_name']
     age = request.form['age']
@@ -1060,31 +1077,36 @@ def save_patient_data():
     record_date = request.form['date']
     user_id = g.user['id']
 
-    patients_collection_path = ['artifacts', app_id, 'users', user_id, 'patients']
+    conn = get_db_connection()
 
-    existing_patients = get_firestore_documents_in_collection(patients_collection_path, query_filters={'op_number': op_number, 'user_id': user_id})
-    if existing_patients:
-        flash('OP Number already exists for another patient under your account. Please use a unique OP Number or select from recent entries.', 'error')
+    # Check if OP Number already exists for this user
+    existing_patient = conn.execute(
+        'SELECT * FROM patients WHERE op_number = ? AND user_id = ?',
+        (op_number, user_id)
+    ).fetchone()
+
+    if existing_patient:
+        flash('OP Number already exists for another patient under your account. Please use a unique OP Number.', 'danger')
+        conn.close()
         return redirect(url_for('dashboard'))
 
     try:
-        patient_data = {
-            'user_id': user_id,
-            'op_number': op_number,
-            'patient_name': patient_name,
-            'age': int(age),
-            'sex': sex,
-            'record_date': record_date,
-            'created_at': datetime.now().isoformat()
-        }
-        
-        add_firestore_document(patients_collection_path, patient_data)
-
-        flash('Patient record saved successfully (to Firestore)! Now upload an image.', 'success')
+        conn.execute(
+            '''
+            INSERT INTO patients (user_id, op_number, patient_name, age, sex, record_date, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''',
+            (user_id, op_number, patient_name, age, sex, record_date, datetime.now().isoformat())
+        )
+        conn.commit()
+        flash('Patient record saved successfully to the database! Now upload an image.', 'success')
         return redirect(url_for('upload_page', op_number=op_number))
     except Exception as e:
-        flash(f'Error saving patient record to Firestore: {e}', 'error')
+        flash(f'Error saving patient record to database: {e}', 'danger')
         return redirect(url_for('dashboard'))
+    finally:
+        conn.close()
+
 
 
 @app.route('/upload_page/<op_number>')
@@ -1109,73 +1131,73 @@ def upload_page(op_number):
 @app.route('/upload', methods=['GET', 'POST'])
 @login_required
 def upload_file():
-    """Handles image upload (camera or file), shade detection, and PDF generation."""
+    """Handles image upload, shade detection, and PDF report generation."""
     if request.method == 'POST':
         if 'file' not in request.files:
-            flash('No file part received. Please try again.', 'danger')
+            flash('No file part', 'danger')
             return redirect(request.url)
-
         file = request.files['file']
         op_number_from_form = request.form.get('op_number')
         patient_name = request.form.get('patient_name', 'Unnamed Patient')
         device_profile = request.form.get('device_profile', 'ideal')
         reference_tab = request.form.get('reference_tab', 'neutral_gray')
 
-        if not file or file.filename == '':
-            flash('No image selected or captured. Please choose or take a photo.', 'danger')
+        if file.filename == '':
+            flash('No selected file', 'danger')
             return redirect(request.url)
 
-        filename = secure_filename(file.filename)
-        file_ext = os.path.splitext(filename)[1]
-        unique_filename = str(uuid.uuid4()) + file_ext
-        original_image_path = os.path.join(UPLOAD_FOLDER, unique_filename)
-        file.save(original_image_path)
-        flash('Image uploaded successfully!', 'success')
+        if file:
+            filename = secure_filename(file.filename)
+            file_ext = os.path.splitext(filename)[1]
+            unique_filename = str(uuid.uuid4()) + file_ext
+            
+            original_image_path = os.path.join(UPLOAD_FOLDER, unique_filename)
+            file.save(original_image_path)
+            flash('Image uploaded successfully!', 'success')
 
-        detected_shades = detect_shades_from_image(original_image_path, device_profile, reference_tab)
+            detected_shades = detect_shades_from_image(original_image_path, device_profile, reference_tab)
 
-        if (detected_shades.get("incisal") == "N/A" and
-            detected_shades.get("middle") == "N/A" and
-            detected_shades.get("cervical") == "N/A" and
-            detected_shades.get("overall_ml_shade") == "N/A" and
-            detected_shades.get("delta_e_matched_shades", {}).get("overall") == "N/A"):
-            flash("Error processing image for shade detection. Please try another image or use better lighting.", 'danger')
-            if os.path.exists(original_image_path):
-                os.remove(original_image_path)
-            return redirect(url_for('upload_page', op_number=op_number_from_form))
+            if (detected_shades.get("incisal") == "N/A" and
+                detected_shades.get("middle") == "N/A" and
+                detected_shades.get("cervical") == "N/A" and
+                detected_shades.get("overall_ml_shade") == "N/A" and
+                detected_shades.get("delta_e_matched_shades", {}).get("overall") == "N/A"):
+                flash("Error processing image for shade detection. Please try another image or check image quality.", 'danger')
+                if os.path.exists(original_image_path):
+                    os.remove(original_image_path)
+                return redirect(url_for('upload_page', op_number=op_number_from_form))
 
-        report_filename = f"report_{patient_name.replace(' ', '')}{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-        report_filepath = os.path.join(REPORT_FOLDER, report_filename)
-        generate_pdf_report(patient_name, detected_shades, original_image_path, report_filepath)
-        flash('PDF report generated successfully!', 'success')
 
-        formatted_analysis_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            report_filename = f"report_{patient_name.replace(' ', '')}{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+            report_filepath = os.path.join(REPORT_FOLDER, report_filename)
+            generate_pdf_report(patient_name, detected_shades, original_image_path, report_filepath)
+            flash('PDF report generated!', 'success')
 
-        report_data = {
-            'patient_name': patient_name,
-            'op_number': op_number_from_form,
-            'original_image': unique_filename,
-            'report_filename': report_filename,
-            'detected_shades': detected_shades,
-            'timestamp': datetime.now().isoformat(),
-            'user_id': g.firestore_user_id
-        }
+            formatted_analysis_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
-        reports_collection_path = ['artifacts', app_id, 'users', g.firestore_user_id, 'reports']
-        add_firestore_document(reports_collection_path, report_data)
+            report_data = {
+                'patient_name': patient_name,
+                'op_number': op_number_from_form,
+                'original_image': unique_filename,
+                'report_filename': report_filename,
+                'detected_shades': detected_shades,
+                'timestamp': datetime.now().isoformat(),
+                'user_id': g.firestore_user_id
+            }
+            reports_collection_path = ['artifacts', app_id, 'users', g.firestore_user_id, 'reports']
+            add_firestore_document(reports_collection_path, report_data)
 
-        return render_template('report.html',
-                               patient_name=patient_name,
-                               shades=detected_shades,
-                               image_filename=unique_filename,
-                               report_filename=report_filename,
-                               analysis_date=formatted_analysis_date,
-                               device_profile=device_profile,
-                               reference_tab=reference_tab)
-
-    flash("Please select a patient from the dashboard before uploading an image.", 'info')
+            return render_template('report.html',
+                                   patient_name=patient_name,
+                                   shades=detected_shades,
+                                   image_filename=unique_filename,
+                                   report_filename=report_filename,
+                                   analysis_date=formatted_analysis_date,
+                                   device_profile=device_profile,
+                                   reference_tab=reference_tab)
+    
+    flash("Please select a patient from the dashboard to upload an image.", 'info')
     return redirect(url_for('dashboard'))
-
 
 
 @app.route('/download_report/<filename>')
