@@ -488,7 +488,6 @@ else:
 #     The deviations are tuned to be noticeable but correctable.
 #     """
 #     simulated_captured_ref_lab = np.copy(ideal_ref_lab_255_scale).astype(np.float32)
-
 #     if device_profile == "iphone_warm":
 #         simulated_captured_ref_lab[1] += np.random.uniform(1, 3)  # Slightly more red (a*)
 #         simulated_captured_ref_lab[2] += np.random.uniform(2, 5) # Slightly more yellow (b*)
@@ -1014,7 +1013,7 @@ def login():
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
-    """Handles user registration (Simulated for Canvas)."""
+    """Handles user registration."""
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
@@ -1028,17 +1027,11 @@ def register():
         if error is None:
             flash(f"Simulated registration successful for {username}. You can now log in!", 'success')
             return redirect(url_for('login'))
+
         flash(error, 'danger')
 
     return render_template('register.html')
 
-@app.route('/logout')
-def logout():
-    """Handles user logout."""
-    session.clear()
-    flash('You have been logged out.', 'info')
-    print(f"DEBUG: User logged out. Session cleared.")
-    return redirect(url_for('home'))
 
 @app.route('/dashboard')
 @login_required
