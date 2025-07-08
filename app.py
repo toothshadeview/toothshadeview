@@ -223,6 +223,53 @@ db_data = {
     }
 }
 db = db_data
+# 1. Flask app, config, routes, ML logic, etc...
+
+# 2. Get DB + teardown
+def get_db():
+    if 'db' not in g:
+        g.db = sqlite3.connect('instance/shadeview.sqlite', detect_types=sqlite3.PARSE_DECLTYPES)
+        g.db.row_factory = sqlite3.Row
+    return g.db
+
+@app.teardown_appcontext
+def close_db(exception):
+    db = g.pop('db', None)
+    if db is not None:
+        db.close()
+
+# 3. 🔽 Paste here your init_db() function
+def init_db():
+    """Initialize SQLite DB and create necessary tables."""
+    with app.app_context():
+        db = get_db()
+        db.executescript("""
+            CREATE TABLE IF NOT EXISTS patients (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                op_number TEXT NOT NULL,
+                patient_name TEXT NOT NULL,
+                age INTEGER NOT NULL,
+                sex TEXT NOT NULL,
+                date TEXT NOT NULL,
+                user_id TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS reports (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                patient_name TEXT,
+                op_number TEXT,
+                original_image TEXT,
+                report_filename TEXT,
+                detected_shades TEXT,
+                timestamp TEXT,
+                user_id TEXT
+            );
+        """)
+        db.commit()
+        print("✅ Database initialized with `patients` and `reports` tables.")
+
+
+
 
 def setup_initial_firebase_globals():
     """
@@ -1051,19 +1098,33 @@ def logout():
 @app.route('/dashboard')
 @login_required
 def dashboard():
-    """Renders the user dashboard with patient details from SQLite."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM patients WHERE user_id = ?", (g.user['id'],))
-    patients = cursor.fetchall()
-    conn.close()
+    user_id = g.user['id']
+    patients_path = ['artifacts', app_id, 'users', user_id, 'patients']
+    reports_path = ['artifacts', app_id, 'users', user_id, 'reports']
 
-    current_date_formatted = datetime.now().strftime('%Y-%m-%d')
+    # Get patient list
+    all_patients = get_firestore_documents_in_collection(patients_path)
 
-    return render_template('dashboard.html',
-                           patients=patients,
-                           user=g.user,
-                           current_date=current_date_formatted)
+    # Get their latest report if any
+    patient_reports = get_firestore_documents_in_collection(reports_path)
+
+    # Attach latest report filename to each patient if exists
+    op_to_report = {}
+    for r in patient_reports:
+        op = r.get('op_number')
+        if op and op not in op_to_report:
+            op_to_report[op] = r  # latest only due to reverse sorting
+
+    enriched_patients = []
+    for p in all_patients:
+        p = p.copy()
+        p['report_filename'] = op_to_report.get(p['op_number'], {}).get('report_filename', None)
+        p['timestamp'] = op_to_report.get(p['op_number'], {}).get('timestamp', None)
+        enriched_patients.append(p)
+
+    return render_template('dashboard.html', reports=enriched_patients, user=g.user,
+                           current_date=datetime.now().strftime('%Y-%m-%d'))
+
 
 
 @app.route('/save_patient_data', methods=['POST'])
