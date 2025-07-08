@@ -268,6 +268,32 @@ def init_db():
         db.commit()
         print("✅ Database initialized with `patients` and `reports` tables.")
 
+from app import app, get_db
+import sqlite3
+
+def init_db_if_not_exists():
+    with app.app_context():
+        db = get_db()
+        cursor = db.cursor()
+
+        # Check if 'patients' table exists
+        cursor.execute("""
+            SELECT name FROM sqlite_master 
+            WHERE type='table' AND name='patients';
+        """)
+        table_exists = cursor.fetchone()
+
+        if table_exists:
+            print("✅ 'patients' table already exists. Skipping initialization.")
+        else:
+            print("⏳ 'patients' table not found. Initializing database...")
+            with app.open_resource('schema.sql') as f:
+                db.executescript(f.read().decode('utf8'))
+            print("✅ Database initialized successfully.")
+
+if __name__ == '__main__':
+    init_db_if_not_exists()
+    
 
 
 
