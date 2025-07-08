@@ -16,6 +16,10 @@ body {
     justify-content: center; /* Center content vertically */
     align-items: center; /* Center content horizontally */
 }
+body {
+    background-image: url('../static/image.jpg') !important;
+}
+
 
 /* Adjust the main .container styles for general page content, not just forms */
 /* This container should ideally wrap all your main sections (hero, workflow, features etc.) */
