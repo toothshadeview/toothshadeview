@@ -5,5 +5,6 @@ CREATE TABLE IF NOT EXISTS patients (
     age INTEGER,
     sex TEXT,
     date TEXT,
-    user_id TEXT
+    user_id TEXT,
+    image_filename TEXT
 );
